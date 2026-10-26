@@ -1,0 +1,283 @@
+{
+  "name": "versão completa curso DIO",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -544,
+        -16
+      ],
+      "id": "079dafdc-07de-4446-b341-a2e5a522281f",
+      "name": "Webhook",
+      "webhookId": "194d70a4-6dc3-4fca-8d69-239138b2cfea"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        -32
+      ],
+      "id": "c1b82a06-5917-4e3b-a3da-7b85dc43dae3",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -320,
+        -16
+      ],
+      "id": "3bf39e07-8f80-4bc2-a0b2-b5dbacb368dc",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n  // normaliza minimo para número\n  obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n  return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        -32
+      ],
+      "id": "2f8586d2-227a-4db0-8a12-9e487cfb532a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        96,
+        -240
+      ],
+      "id": "89421c0d-44e2-4f50-812d-18d692c2297e",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Pega os dados que vieram do Merge\nconst clientes = $json.body.clientes;\nconst investimentos = $json.investimentos;\n\nconst resultados = [];\n\n// 2) Para cada cliente, monta a recomendação\nfor (const cliente of clientes) {\n\n  // Converte \"R$ 12.500,00\" para o número 12500\n  const saldoNum = Number(\n    cliente.saldo.replace(\"R$\", \"\").replace(/\\./g, \"\").replace(\",\", \".\")\n  );\n\n  // Fica só com os investimentos do perfil do cliente\n  const doPerfil = investimentos.filter(inv => inv.perfil === cliente.perfil);\n\n  // Escolhe o de maior mínimo que o saldo consegue pagar\n  let escolhido = null;\n  for (const inv of doPerfil) {\n    if (saldoNum >= inv.minimo) {\n      if (escolhido === null || inv.minimo > escolhido.minimo) {\n        escolhido = inv;\n      }\n    }\n  }\n\n  // Se nenhum serve, o motivo muda e sugerimos o de menor mínimo\n  let motivo = \"saldo_ok\";\n  if (escolhido === null) {\n    motivo = \"saldo_insuficiente\";\n    escolhido = doPerfil[0];\n    for (const inv of doPerfil) {\n      if (inv.minimo < escolhido.minimo) escolhido = inv;\n    }\n  }\n\n  // 3) Monta as mensagens\n  const minimoTxt = \"R$ \" + escolhido.minimo.toLocaleString(\"pt-BR\", { minimumFractionDigits: 2 });\n  const cabecalho = \"Olá \" + cliente.nome + \"! Pelo seu perfil (\" + cliente.perfil + \"), \";\n  let mensagens = [];\n\n  if (motivo === \"saldo_ok\") {\n    mensagens = [\n      cabecalho + \"uma boa opção é \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Com seu saldo atual (\" + cliente.saldo + \") você já consegue investir. Rentabilidade: \" + escolhido.rentabilidade + \".\",\n      \"Oi \" + cliente.nome + \"! Recomendação para \" + cliente.perfil + \": \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Seu saldo (\" + cliente.saldo + \") já atende o mínimo. Rentabilidade: \" + escolhido.rentabilidade + \".\",\n      cliente.nome + \", indo direto ao ponto: para o perfil \" + cliente.perfil + \", \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Você tem \" + cliente.saldo + \", então dá pra aplicar.\",\n    ];\n  } else {\n    mensagens = [\n      cabecalho + \"a opção mais acessível é \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Seu saldo (\" + cliente.saldo + \") ainda não atinge esse valor.\",\n      \"Oi \" + cliente.nome + \"! Para \" + cliente.perfil + \", a opção com menor mínimo é \" + escolhido.produto + \" (\" + minimoTxt + \"). Seu saldo (\" + cliente.saldo + \") ainda não alcança.\",\n      cliente.nome + \", ainda falta saldo: \" + escolhido.produto + \" exige \" + minimoTxt + \" e você tem \" + cliente.saldo + \".\",\n    ];\n  }\n\n  // 4) Escolhe uma das 3 mensagens aleatoriamente\n  const posicao = Math.floor(Math.random() * mensagens.length);\n\n  resultados.push({\n    nome: cliente.nome,\n    email: cliente.email,\n    perfil: cliente.perfil,\n    saldo_texto: cliente.saldo,\n    saldo_num: saldoNum,\n    recomendacao: escolhido,\n    motivo: motivo,\n    mensagens: mensagens,\n    mensagem_escolhida: mensagens[posicao],\n  });\n}\n\n// 5) Devolve para o próximo nó\nreturn [{\n  json: {\n    total_clientes: clientes.length,\n    total_investimentos: investimentos.length,\n    resultados: resultados,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -32
+      ],
+      "id": "ede0b0d7-6615-4c37-8ffe-4fa3f7010bb9",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Escreva um e-mail para cada cliente da tabela abaixo.\n\n{{ $json.tabela }}",
+        "options": {
+          "systemMessage": "Você é um assistente de uma corretora de investimentos. Escreva e-mails curtos e simpáticos, em português do Brasil.\n\nVocê receberá uma tabela com clientes e o produto recomendado para cada um.\n\nRegras:\n- Escreva UM e-mail para CADA cliente da tabela, usando só os dados da tabela.\n- Chame o cliente pelo primeiro nome.\n- Cite o produto recomendado, o valor mínimo e a rentabilidade.\n- Se a situação for \"Saldo insuficiente\", explique com gentileza que o saldo ainda não atinge o mínimo e incentive o cliente a juntar o valor.\n- Nunca prometa ganho garantido.\n- No máximo 80 palavras por e-mail, sem asteriscos nem markdown.\n\nResponda SOMENTE com um JSON válido, sem nenhum texto antes ou depois, neste formato:\n[\n  {\"email\": \"email do cliente\", \"assunto\": \"assunto do e-mail\", \"mensagem\": \"texto do e-mail\"}\n]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        592,
+        -32
+      ],
+      "id": "a8e46892-f2fd-4e09-9e9c-fdcca889bd5e",
+      "name": "AI Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        176
+      ],
+      "id": "e5d67822-e3ef-4b56-a574-37f602a429cd",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "N9rpyMm6WPeD9OrC",
+          "name": "Projeto Curso DIO"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Pega a lista de clientes já com a recomendação\nconst resultados = $json.resultados;\n\n// 2) Monta o cabeçalho da tabela (formato Markdown)\nlet tabela = \"| Nome | Email | Perfil | Saldo (R$) | Produto recomendado | Mínimo (R$) | Rentabilidade | Situação |\\n\";\ntabela += \"|---|---|---|---|---|---|---|---|\\n\";\n\n// 3) Uma linha da tabela para cada cliente\nfor (const r of resultados) {\n  let situacao = \"Saldo suficiente\";\n  if (r.motivo !== \"saldo_ok\") {\n    situacao = \"Saldo insuficiente\";\n  }\n\n  tabela += \"| \" + r.nome + \" | \" + r.email + \" | \" + r.perfil + \" | \" + r.saldo_num +\n    \" | \" + r.recomendacao.produto + \" | \" + r.recomendacao.minimo +\n    \" | \" + r.recomendacao.rentabilidade + \" | \" + situacao + \" |\\n\";\n}\n\n// 4) Devolve a tabela (para a IA) e a lista original (para usar depois)\nreturn [{\n  json: {\n    total_clientes: resultados.length,\n    tabela: tabela,\n    clientes: resultados,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -32
+      ],
+      "id": "f8a945f8-d301-451b-a5e6-d26b92e6301f",
+      "name": "Preparar dados"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Texto que a IA devolveu e lista original de clientes\nlet texto = $json.output;\nconst clientes = $(\"Preparar dados\").first().json.clientes;\n\n// 2) Recorta só o que está entre [ e ] (tira ```json e textos extras)\nconst inicio = texto.indexOf(\"[\");\nconst fim = texto.lastIndexOf(\"]\");\n\nlet emailsIA = [];\nif (inicio !== -1 && fim !== -1) {\n  try {\n    emailsIA = JSON.parse(texto.slice(inicio, fim + 1));\n  } catch (erro) {\n    emailsIA = []; // JSON quebrado: vamos usar a mensagem padrão\n  }\n}\nif (!Array.isArray(emailsIA)) {\n  emailsIA = [];\n}\n\nconst saida = [];\n\n// 3) Para cada cliente, procura o e-mail que a IA escreveu para ele\nfor (const cliente of clientes) {\n  let achado = null;\n  for (const item of emailsIA) {\n    if (item && item.email && item.email.trim().toLowerCase() === cliente.email.toLowerCase()) {\n      achado = item;\n    }\n  }\n\n  // Valores padrão (usados se a IA falhar)\n  let assunto = \"Sua recomendação de investimento\";\n  let mensagem = cliente.mensagem_escolhida;\n  let origem = \"padrao\";\n\n  // 4) Regras: aceita o texto da IA só se estiver completo e sem promessa de ganho\n  if (achado && achado.assunto && achado.mensagem) {\n    const msg = String(achado.mensagem).replace(/\\*/g, \"\").trim(); // tira asteriscos\n    const temPromessa = msg.toLowerCase().includes(\"garantid\");\n\n    if (msg !== \"\" && !temPromessa) {\n      assunto = String(achado.assunto).replace(/\\*/g, \"\").trim();\n      mensagem = msg;\n      origem = \"ia\";\n    }\n  }\n\n  // 5) Aviso de risco no final, se a IA não tiver colocado\n  if (!mensagem.toLowerCase().includes(\"risco\")) {\n    mensagem = mensagem + \"\\n\\nInvestimentos envolvem riscos. Rentabilidade passada não garante resultados futuros.\";\n  }\n\n  // 6) Gmail em modo HTML ignora \"\\n\", então trocamos por <br> (quebra de linha em HTML)\n  const htmlBody = \"<p>\" + mensagem.replace(/\\n\\n/g, \"</p><p>\").replace(/\\n/g, \"<br>\") + \"</p>\";\n\n  // 7) Guarda o e-mail pronto deste cliente\n  saida.push({\n    json: {\n      nome: cliente.nome,\n      email: cliente.email,\n      assunto: assunto,\n      mensagem: mensagem,\n      html_body: htmlBody,\n      origem: origem,\n    },\n  });\n}\n\n// 8) Devolve um item por cliente (o Gmail vai rodar uma vez para cada)\nreturn saida;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        -32
+      ],
+      "id": "6b2ddede-cb3b-4965-bfd7-c4bedff5a407",
+      "name": "Normalizar emails"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Preparar dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Normalizar emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar dados": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar emails": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d785816e-ae45-4cc9-9c4e-e56e42ba0c5a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "10fdfa90e225bb24b84bb3348514a64c9f8febc93fb889c42614109517835a7a"
+  },
+  "nodeGroups": [],
+  "id": "ax0ekliFj6aj2h5C",
+  "tags": []
+}

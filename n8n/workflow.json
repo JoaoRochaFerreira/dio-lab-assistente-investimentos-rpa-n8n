@@ -1,0 +1,175 @@
+{
+  "name": "MVP Curso Dio",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -544,
+        -16
+      ],
+      "id": "ad1020f6-5a34-439d-b231-cda85fd07244",
+      "name": "Webhook",
+      "webhookId": "bc60c28c-ac1b-4af3-b016-0073b3a85f11"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        336,
+        -32
+      ],
+      "id": "3e1fb02a-5262-46e4-8f02-cc10bbea2997",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -320,
+        -16
+      ],
+      "id": "488865ad-55a6-458f-8291-aa53b551b50a",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n  // normaliza minimo para número\n  obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n  return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        -32
+      ],
+      "id": "9a483203-a27c-4321-810b-32f2d30b806f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        96,
+        -240
+      ],
+      "id": "946ff457-d4d6-424d-9ff7-719e448e780c",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Pega os dados que vieram do Merge\nconst clientes = $json.body.clientes;\nconst investimentos = $json.investimentos;\n\nconst resultados = [];\n\n// 2) Para cada cliente, monta a recomendação\nfor (const cliente of clientes) {\n\n  // Converte \"R$ 12.500,00\" para o número 12500\n  const saldoNum = Number(\n    cliente.saldo.replace(\"R$\", \"\").replace(/\\./g, \"\").replace(\",\", \".\")\n  );\n\n  // Fica só com os investimentos do perfil do cliente\n  const doPerfil = investimentos.filter(inv => inv.perfil === cliente.perfil);\n\n  // Escolhe o de maior mínimo que o saldo consegue pagar\n  let escolhido = null;\n  for (const inv of doPerfil) {\n    if (saldoNum >= inv.minimo) {\n      if (escolhido === null || inv.minimo > escolhido.minimo) {\n        escolhido = inv;\n      }\n    }\n  }\n\n  // Se nenhum serve, o motivo muda e sugerimos o de menor mínimo\n  let motivo = \"saldo_ok\";\n  if (escolhido === null) {\n    motivo = \"saldo_insuficiente\";\n    escolhido = doPerfil[0];\n    for (const inv of doPerfil) {\n      if (inv.minimo < escolhido.minimo) escolhido = inv;\n    }\n  }\n\n  // 3) Monta as mensagens\n  const minimoTxt = \"R$ \" + escolhido.minimo.toLocaleString(\"pt-BR\", { minimumFractionDigits: 2 });\n  const cabecalho = \"Olá \" + cliente.nome + \"! Pelo seu perfil (\" + cliente.perfil + \"), \";\n  let mensagens = [];\n\n  if (motivo === \"saldo_ok\") {\n    mensagens = [\n      cabecalho + \"uma boa opção é \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Com seu saldo atual (\" + cliente.saldo + \") você já consegue investir. Rentabilidade: \" + escolhido.rentabilidade + \".\",\n      \"Oi \" + cliente.nome + \"! Recomendação para \" + cliente.perfil + \": \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Seu saldo (\" + cliente.saldo + \") já atende o mínimo. Rentabilidade: \" + escolhido.rentabilidade + \".\",\n      cliente.nome + \", indo direto ao ponto: para o perfil \" + cliente.perfil + \", \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Você tem \" + cliente.saldo + \", então dá pra aplicar.\",\n    ];\n  } else {\n    mensagens = [\n      cabecalho + \"a opção mais acessível é \" + escolhido.produto + \" (mínimo \" + minimoTxt + \"). Seu saldo (\" + cliente.saldo + \") ainda não atinge esse valor.\",\n      \"Oi \" + cliente.nome + \"! Para \" + cliente.perfil + \", a opção com menor mínimo é \" + escolhido.produto + \" (\" + minimoTxt + \"). Seu saldo (\" + cliente.saldo + \") ainda não alcança.\",\n      cliente.nome + \", ainda falta saldo: \" + escolhido.produto + \" exige \" + minimoTxt + \" e você tem \" + cliente.saldo + \".\",\n    ];\n  }\n\n  // 4) Escolhe uma das 3 mensagens aleatoriamente\n  const posicao = Math.floor(Math.random() * mensagens.length);\n\n  resultados.push({\n    nome: cliente.nome,\n    email: cliente.email,\n    perfil: cliente.perfil,\n    saldo_texto: cliente.saldo,\n    saldo_num: saldoNum,\n    recomendacao: escolhido,\n    motivo: motivo,\n    mensagens: mensagens,\n    mensagem_escolhida: mensagens[posicao],\n  });\n}\n\n// 5) Devolve para o próximo nó\nreturn [{\n  json: {\n    total_clientes: clientes.length,\n    total_investimentos: investimentos.length,\n    resultados: resultados,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -32
+      ],
+      "id": "107729df-7877-4643-923d-c37cc17f5c9b",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "68318e54-3bf5-4867-9e58-105a576b3f80",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "10fdfa90e225bb24b84bb3348514a64c9f8febc93fb889c42614109517835a7a"
+  },
+  "nodeGroups": [],
+  "id": "J7EpZiZwnwFXhMKi",
+  "tags": []
+}
