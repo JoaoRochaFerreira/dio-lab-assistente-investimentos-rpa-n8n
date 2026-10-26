@@ -71,16 +71,9 @@ Para a versão completa, importe `n8n/workflow-completo.json`, crie a sua creden
 
 ## Evidências
 
-**MVP**
-
-![Terminal com Status 200](prints/mvp-terminal.png)
-![Workflow MVP](prints/mvp-workflow.png)
-![Resposta do webhook com as mensagens](prints/mvp-respond.png)
-
-**Versão completa**
-
-![Workflow completo](prints/completo-workflow.png)
-![E-mails gerados pela IA](prints/completo-normalizar.png)
+![Código do RPA e execução no terminal](prints/codigo%20python%20rpa.png)
+![Workflow no n8n funcionando](prints/workflow-funcionando.png)
+![Resposta do webhook com as mensagens](prints/respond-to-webhook.png)
 
 ## Limitações
 
